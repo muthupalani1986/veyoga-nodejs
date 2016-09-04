@@ -1,0 +1,80 @@
+var express    = require("express");
+var mysql      = require('mysql');
+
+var pool      =    mysql.createPool({
+    connectionLimit : 100, //important
+    host     : 'localhost',
+    user     : 'root',
+    password : 'password',
+    database : 'asana',
+    debug    :  false
+});
+
+
+var app = express();
+var server = require('http').Server(app);
+var io = require('socket.io')(server);
+
+var redis = require('redis');
+var redisClient = redis.createClient({host : 'localhost', port : 6379});
+
+redisClient.on('ready',function() {
+ console.log("Redis is ready");
+});
+
+redisClient.on('error',function() {
+ console.log("Error in Redis");
+});
+
+redisClient.set("language","nodejs",function(err,reply) {
+ console.log(err);
+ console.log(reply);
+});
+
+redisClient.get("language",function(err,reply) {
+ console.log(err);
+ console.log(reply);
+});
+
+
+
+function handle_database(req,res) {
+    
+    pool.getConnection(function(err,connection){
+        if (err) {
+          res.json({"code" : 100, "status" : "Error in connection database"});
+          return;
+        }   
+
+        console.log('connected as id ' + connection.threadId);
+        
+        connection.query("select * from users",function(err,rows){
+            connection.release();
+            if(!err) {
+                res.json(rows);
+            }           
+        });
+
+        connection.on('error', function(err) {      
+              res.json({"code" : 100, "status" : "Error in connection database"});
+              return;     
+        });
+  });
+}
+
+app.get("/",function(req,res){-
+        handle_database(req,res);
+});
+
+
+io.sockets.on('connection', function (socket) {
+
+    socket.on('message', function (message) {
+        console.log("Got message: " + message);
+        socket.broadcast.emit('pageview', { 'url': message });
+    });
+
+});
+
+//app.listen(4000);
+server.listen(4000)
