@@ -8,6 +8,7 @@ var jwt    = require('jsonwebtoken');
 var mysql      = require('mysql');
 var md5 = require('md5');
 var async=require('async');
+var fs = require('fs');
 var pool      =    mysql.createPool({
     connectionLimit : 100, //important
     host     : 'localhost',
@@ -404,7 +405,7 @@ async.series([
 	function(callback) {
 			var itemsProcessed=0;
 			var followers=JSON.parse(req.body.followerData);
-			console.log(followers);
+			
 			var sql = "INSERT INTO followers (user_id, task_id) VALUES ?";
 
 			connection.query(sql,[followers],function(err,row){
@@ -438,16 +439,28 @@ async.series([
 
 var storage =   multer.diskStorage({
   destination: function (req, file, callback) {
-    callback(null, './uploads');
+	var dir = './uploads/'+req.body.taskID;
+	if (!fs.existsSync(dir)){
+	    fs.mkdirSync(dir);
+	    callback(null, dir);
+	}
+	else
+	{
+		callback(null, dir);
+	}
+    
   },
   filename: function (req, file, callback) {
-  	
+  	var datetimestamp = Date.now();
     callback(null, Date.now()+'-'+file.originalname);
+    //callback(null, file.originalname + '-' + datetimestamp + '.' + file.originalname.split('.')[file.originalname.split('.').length -1])
+
   }
 });
 
-//var upload = multer({ storage : storage}).single('userPhoto');
-var upload = multer({ storage : storage}).array('userPhotos',12);
+//var upload = multer({ storage : storage}).single('files');
+var upload = multer({storage: storage}).single('file');
+//var upload = multer({ storage : storage}).array('files',12);
 
 
 apiRoutes.post('/saveAttachment',function(req,res){
@@ -456,8 +469,10 @@ apiRoutes.post('/saveAttachment',function(req,res){
         if(err) {
             return res.end("Error uploading file."+err);
         }
+        
+        //console.log();
         //console.log(req.files.length);
-        pool.getConnection(function(err,connection){
+        /*pool.getConnection(function(err,connection){
 	        for(i=0;i<req.files.length;i++)
 	        {
 	        		var itemsProcessed=0;
@@ -491,7 +506,21 @@ apiRoutes.post('/saveAttachment',function(req,res){
 					});
 
 	        }
+    	});*/
+
+    	pool.getConnection(function(err,connection){
+
+    		connection.query("INSERT INTO attachments SET?",{task_id:req.body.taskID,upload_by:currentUser.user_id,file_name:req.file.filename,download_url:req.file.path,original_name:req.file.originalname,mimetype:req.file.mimetype,file_size:req.file.size},function(err,row){
+    		connection.release();	
+					if (err) {     	
+						res.json({"status":"Failure","code" : 101, "message" : err});
+						return;
+					}
+					var obj={"Success":true,"code":200,"attach_id":row.insertId};
+					res.send(obj);
+					});				
     	});
+
         //res.end("File is uploaded");
     });
 });
