@@ -9,6 +9,9 @@ var mysql      = require('mysql');
 var md5 = require('md5');
 var async=require('async');
 var fs = require('fs');
+var path = require('path');
+var mime = require('mime');
+
 var pool      =    mysql.createPool({
     connectionLimit : 100, //important
     host     : 'localhost',
@@ -669,6 +672,86 @@ apiRoutes.post('/updateTaskPriority',function(req,res){
 	}); 
 
 });
+
+apiRoutes.get('/download', function(req, res){
+	var currentUser=req.decoded;
+	pool.getConnection(function(err,connection){
+	 	if (err) 
+	 	{
+	      res.json({success: false,"code" : 100, "message" : err});
+	      return;
+	    }
+
+       	connection.query("select * from attachments where attach_id=?",[req.query.assert_id],function(err,attachmentsRows){
+	    connection.release();
+			if (err) {     	
+		     	res.json({"status":"Failure","code" : 101, "message" : err});
+		     	return;
+	     	}
+	     	var download_url=attachmentsRows[0].download_url;
+	     	var original_name=attachmentsRows[0].original_name;
+			var file = __dirname+'/'+download_url;
+			var filename = path.basename(file);
+			var mimetype = mime.lookup(file);  
+			res.setHeader('Content-disposition', 'attachment; filename=' + original_name);
+			res.setHeader('Content-type', mimetype);
+			var filestream = fs.createReadStream(file);
+			filestream.pipe(res);
+	     	
+     	});
+
+	});
+
+
+});
+
+
+apiRoutes.post('/deleteAssert', function(req, res){
+	var currentUser=req.decoded;
+	pool.getConnection(function(err,connection){
+	 	if (err) 
+	 	{
+	      res.json({success: false,"code" : 100, "message" : err});
+	      return;
+	    }
+
+       	connection.query("select * from attachments where attach_id=?",[req.body.assert_id],function(err,attachmentsRows){
+	    
+			if (err) {     	
+		     	res.json({"status":"Failure","code" : 101, "message" : err});
+		     	return;
+	     	}
+	     	var download_url=attachmentsRows[0].download_url;
+	     	var original_name=attachmentsRows[0].original_name;
+			var file = __dirname+'/'+download_url;
+			fs.unlink(file, function(err){
+		           if (err) {     	
+				     	res.json({"status":"Failure","code" : 101, "message" : err});
+				     	return;
+		     		}
+
+						connection.query("delete from attachments where attach_id=?",[req.body.assert_id],function(err,attachmentsRows){
+						connection.release();
+							if (err) {     	
+							res.json({"status":"Failure","code" : 101, "message" : err});
+							}
+
+							var obj={"Success":true,"code":200};
+		    				res.send(obj);
+
+						});
+
+	          });
+
+
+	     	
+     	});
+
+	});
+
+
+});
+
 
 app.use('/api', apiRoutes);
 
