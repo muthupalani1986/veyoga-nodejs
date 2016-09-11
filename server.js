@@ -765,7 +765,6 @@ apiRoutes.post('/updateTaskStatus', function(req, res){
 	var currentTab=req.body.currentTab;
 	var currentDateTime=moment().format("YYYY-MM-DD HH:mm:ss");
 	console.log(taskStatus);
-
 pool.getConnection(function(err,connection){
 
 		var tasks={};
@@ -799,8 +798,7 @@ async.series([
 			     	res.json({"status":"Failure","code" : 101, "message" : err,success: false});
 			     	return;
 		     	}
-		     		tasks=tasksRow;
-		    		console.log(tasks);
+		     		tasks=tasksRow;		    		
 		    		callback(null, '');
 		     });
 
