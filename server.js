@@ -277,7 +277,7 @@ apiRoutes.post('/myTasks',function(req,res){
 	      res.json({success: false,"code" : 100, "message" : err});
 	      return;
 	    }
-	    connection.query("SELECT task.*,pro.pro_name,pro.pro_id,b.task_name as section_name FROM  tasks AS task LEFT JOIN projects AS pro ON task.project_id = pro.pro_id LEFT JOIN tasks as b ON b.task_id=task.section_id where task.assignee =?",[currentUser.user_id],function(err,myTasksRow){
+	    connection.query("SELECT task.*,pro.pro_name,pro.pro_id,b.task_name as section_name FROM  tasks AS task LEFT JOIN projects AS pro ON task.project_id = pro.pro_id LEFT JOIN tasks as b ON b.task_id=task.section_id where task.assignee =? and task.completed=0",[currentUser.user_id],function(err,myTasksRow){
 		connection.release();
 			if (err) {     	
 		     	res.json({"status":"Failure","code" : 101, "message" : err,success: false});
@@ -306,7 +306,7 @@ apiRoutes.post('/updateDueDate',function(req,res){
 		     	res.json({"status":"Failure","code" : 101, "message" : err,success:false});
 		     	return;
 	     	}
-	     	  var obj={"Success":true,"code":200,success:true};
+	     	  var obj={"code":200,success:true};
 	    		res.send(obj);
 
 	     });
@@ -409,16 +409,21 @@ async.series([
 	function(callback) {
 			var itemsProcessed=0;
 			var followers=JSON.parse(req.body.followerData);
-			
-			var sql = "INSERT INTO followers (user_id, task_id) VALUES ?";
+			if(followers.length>0)
+			{
+				var sql = "INSERT INTO followers (user_id, task_id) VALUES ?";
 
-			connection.query(sql,[followers],function(err,row){
-				if (err) {     	
-					res.json({"status":"Failure","code" : 101, "message" : err,success:false});
-					return;
-				}			
+				connection.query(sql,[followers],function(err,row){
+					if (err) {     	
+						res.json({"status":"Failure","code" : 101, "message" : err,success:false});
+						return;
+					}			
+					callback(null,'');
+				});
+			}
+			else{
 				callback(null,'');
-			});
+			}
 			 
 	},
 	function(callback) {
@@ -609,7 +614,7 @@ apiRoutes.post('/updateTaskName',function(req,res){
 		     	res.json({"status":"Failure","code" : 101, "message" : err,success:false});
 		     	return;
 	     	}
-	     	  var obj={success:false,"code":200};
+	     	  var obj={success:true,"code":200};
 	    		res.send(obj);
 
 	     });
@@ -632,7 +637,7 @@ apiRoutes.post('/updateTaskDescription',function(req,res){
 		     	res.json({"status":"Failure","code" : 101, "message" : err,success:false});
 		     	return;
 	     	}
-	     	  var obj={success:false,"code":200};
+	     	  var obj={success:true,"code":200};
 	    		res.send(obj);
 
 	     });
@@ -663,7 +668,7 @@ apiRoutes.post('/updateTaskPriority',function(req,res){
 		     		if(taskWithPriority.length==itemsProcessed)
 		     		{		     			
 		     			connection.release();
-		     	  		var obj={success:false,"code":200};
+		     	  		var obj={success:true,"code":200};
 		    			res.send(obj);
 		    		}
 
@@ -757,38 +762,86 @@ apiRoutes.post('/deleteAssert', function(req, res){
 apiRoutes.post('/updateTaskStatus', function(req, res){
 	var currentUser=req.decoded;
 	var taskStatus=req.body.taskStatus;
+	var currentTab=req.body.currentTab;
 	var currentDateTime=moment().format("YYYY-MM-DD HH:mm:ss");
-	console.log(currentDateTime);
-		pool.getConnection(function(err,connection){
+	console.log(taskStatus);
+
+pool.getConnection(function(err,connection){
+
+		var tasks={};
+		var currentTask={};
+
 	 	if (err) 
 	 	{
 	      res.json({success: false,"code" : 100, "message" : err});
 	      return;
 	    }
 
-	   connection.query("update tasks set completed=?,completed_at=? where task_id=?",[taskStatus,currentDateTime,req.body.taskID],function(err,row){
-	    
-		if (err) {     	
+async.series([
+	function(callback) {
+
+		connection.query("update tasks set completed=?,completed_at=? where task_id=?",[taskStatus,currentDateTime,req.body.taskID],function(err,row){
+		if(err){     	
 		     	res.json({"status":"Failure","code" : 101, "message" : err,success:false});
 		     	return;
 	     	}
-
-		var projectID=req.body.projectID;
-		connection.query("SELECT task.*,pro.pro_name,pro.pro_id,b.task_name as section_name FROM  tasks AS task LEFT JOIN projects AS pro ON task.project_id = pro.pro_id  LEFT JOIN tasks as b ON b.task_id=task.section_id WHERE task.project_id =? and task.completed=0 order by task.task_priority ASC",[projectID],function(err,tasks){
-		connection.release();
-		if (err) {     	
-		 	res.json({"status":"Failure","code" : 101, "message" : err,success:false});
-		 	return;
-			}
-			var obj={success:true,"code":200,"tasks":tasks};
-		    res.send(obj);
-			
-		});
-
-		//var obj={"Success":true,"code":200};
-			//res.send(tasks);
-
+	     	callback(null, '');
 	     });
+		
+	},
+	function(callback){
+
+		if(currentTab=="myTasks"){
+
+		    connection.query("SELECT task.*,pro.pro_name,pro.pro_id,b.task_name as section_name FROM  tasks AS task LEFT JOIN projects AS pro ON task.project_id = pro.pro_id LEFT JOIN tasks as b ON b.task_id=task.section_id where task.assignee =? and task.completed=0",[currentUser.user_id],function(err,tasksRow){
+			
+				if (err) {     	
+			     	res.json({"status":"Failure","code" : 101, "message" : err,success: false});
+			     	return;
+		     	}
+		     		tasks=tasksRow;
+		    		console.log(tasks);
+		    		callback(null, '');
+		     });
+
+	     }
+	     else
+	     {
+			    var projectID=req.body.projectID;
+				connection.query("SELECT task.*,pro.pro_name,pro.pro_id,b.task_name as section_name FROM  tasks AS task LEFT JOIN projects AS pro ON task.project_id = pro.pro_id  LEFT JOIN tasks as b ON b.task_id=task.section_id WHERE task.project_id =? and task.completed=0 order by task.task_priority ASC",[projectID],function(err,tasksRow){
+				
+				if (err) {     	
+				 	res.json({"status":"Failure","code" : 101, "message" : err,success:false});
+				 	return;
+					}					
+				    tasks=tasksRow;				    
+					callback(null, '');
+				});
+	     }
+
+	},
+	function(callback){
+
+				connection.query("SELECT task.*,pro.pro_name,pro.pro_id,b.task_name as section_name FROM  tasks AS task LEFT JOIN projects AS pro ON task.project_id = pro.pro_id  LEFT JOIN tasks as b ON b.task_id=task.section_id WHERE task.task_id=? order by task.task_priority ASC",[req.body.taskID],function(err,currentTaskRow){
+				
+				if (err) {     	
+				 	res.json({"status":"Failure","code" : 101, "message" : err,success:false});
+				 	return;
+					}					
+				    currentTask=currentTaskRow;				    
+					callback(null, '');
+				});
+
+	}
+	],
+	function(err, results) {
+		connection.release();
+		var obj={success:true,"code":200,"tasks":tasks,"currentTask":currentTask};
+		res.send(obj);
+	}
+
+	);
+
 
 	});
 
