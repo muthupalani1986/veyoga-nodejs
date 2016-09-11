@@ -11,7 +11,7 @@ var async=require('async');
 var fs = require('fs');
 var path = require('path');
 var mime = require('mime');
-
+var moment = require('moment');
 var pool      =    mysql.createPool({
     connectionLimit : 100, //important
     host     : 'localhost',
@@ -120,10 +120,10 @@ apiRoutes.post('/users',function(req,res){
 	connection.query("select * from users where org_id=?",[currentUser.org_id],function(err,rows){
 	connection.release();
 		if (err) {     	
-	     	res.json({"status":"Failure","code" : 101, "message" : err});
+	     	res.json({success: false,"status":"Failure","code" : 101, "message" : err});
 	     	return;
 	     }
-	     var obj={"Success":true,"code":200,"users":rows};
+	     var obj={success: true,"code":200,"users":rows};
 	     res.send(obj);
 		});
 
@@ -145,7 +145,7 @@ apiRoutes.post('/sidenav',function(req,res){
 
 	connection.query("select team_id,team_name from teams where org_id=?",[currentUser.org_id],function(err,teams){
 	if (err) {     	
-     	res.json({"status":"Failure","code" : 101, "message" : err});
+     	res.json({success: false,"status":"Failure","code" : 101, "message" : err});
      	return;
      }
      var itemsProcessed = 0;
@@ -154,7 +154,7 @@ apiRoutes.post('/sidenav',function(req,res){
      	connection.query("select pro_id,pro_name from projects where team_id=?",[teams[i].team_id],function(err,projects){
 		
 		if (err) {     	
-	     	res.json({"status":"Failure","code" : 101, "message" : err});
+	     	res.json({success: false,"status":"Failure","code" : 101, "message" : err});
 	     	return;
      	}
      	itemsProcessed++;
@@ -164,7 +164,7 @@ apiRoutes.post('/sidenav',function(req,res){
 		if(teams.length==itemsProcessed)
 		{			
 			sidenav.sidenav=sidenavTree.details;			
-			obj={"Success":true,"code":200,"sidenav":sidenav.sidenav};
+			obj={success: true,"code":200,"sidenav":sidenav.sidenav};
 			res.send(obj);
 		}
 
@@ -191,13 +191,14 @@ apiRoutes.post('/getTasks',function(req,res){
 	      return;
 	    } 
 	    var projectID=req.body.projectID;
-	    connection.query("SELECT task.*,pro.pro_name,pro.pro_id,b.task_name as section_name FROM  tasks AS task LEFT JOIN projects AS pro ON task.project_id = pro.pro_id  LEFT JOIN tasks as b ON b.task_id=task.section_id WHERE task.project_id =? order by task.task_priority ASC",[projectID],function(err,tasks){
+	    connection.query("SELECT task.*,pro.pro_name,pro.pro_id,b.task_name as section_name FROM  tasks AS task LEFT JOIN projects AS pro ON task.project_id = pro.pro_id  LEFT JOIN tasks as b ON b.task_id=task.section_id WHERE task.project_id =? and task.completed=0 order by task.task_priority ASC",[projectID],function(err,tasks){
 	    connection.release();
 			if (err) {     	
-		     	res.json({"status":"Failure","code" : 101, "message" : err});
+		     	res.json({success: false,"status":"Failure","code" : 101, "message" : err});
 		     	return;
 	     	}
-	     	res.send(tasks);
+	     	obj={success: true,"code":200,"tasks":tasks};
+	     	res.send(obj);
      	});
 
 	});
@@ -221,7 +222,7 @@ async.series([
        	connection.query("select * from conversations where task_id=?",[taskID],function(err,conversationsRow){
 	    
 			if (err) {     	
-		     	res.json({"status":"Failure","code" : 101, "message" : err});
+		     	res.json({success: false,"status":"Failure","code" : 101, "message" : err});
 		     	return;
 	     	}
 	     	coversation=conversationsRow;
@@ -234,7 +235,7 @@ async.series([
        	connection.query("select user.user_id,user.firstname,user.lastname,user.email from followers as follow INNER JOIN users as user ON user.user_id=follow.user_id where follow.task_id=?",[taskID],function(err,followersRow){
 	    
 			if (err) {     	
-		     	res.json({"status":"Failure","code" : 101, "message" : err});
+		     	res.json({"status":"Failure","code" : 101, "message" : err,success: false});
 		     	return;
 	     	}
 	     	followers=followersRow;
@@ -246,7 +247,7 @@ async.series([
        	connection.query("select * from attachments where task_id=?",[taskID],function(err,attachmentsRows){
 	    
 			if (err) {     	
-		     	res.json({"status":"Failure","code" : 101, "message" : err});
+		     	res.json({"status":"Failure","code" : 101, "message" : err,success: false});
 		     	return;
 	     	}
 	     	attachments=attachmentsRows;	     	
@@ -258,7 +259,7 @@ async.series([
 function(err, results) {
     
 	connection.release();
-    obj={"coversation":coversation,"followers":followers,"attachments":attachments};
+    obj={"coversation":coversation,"followers":followers,"attachments":attachments,success: true};
     res.send(obj);
 
 });
@@ -279,10 +280,10 @@ apiRoutes.post('/myTasks',function(req,res){
 	    connection.query("SELECT task.*,pro.pro_name,pro.pro_id,b.task_name as section_name FROM  tasks AS task LEFT JOIN projects AS pro ON task.project_id = pro.pro_id LEFT JOIN tasks as b ON b.task_id=task.section_id where task.assignee =?",[currentUser.user_id],function(err,myTasksRow){
 		connection.release();
 			if (err) {     	
-		     	res.json({"status":"Failure","code" : 101, "message" : err});
+		     	res.json({"status":"Failure","code" : 101, "message" : err,success: false});
 		     	return;
 	     	}
-	     	  var obj={"myTasks":myTasksRow};
+	     	  var obj={"myTasks":myTasksRow,success: true,"code" : 200};
 	    		res.send(obj);
 
 	     });
@@ -302,10 +303,10 @@ apiRoutes.post('/updateDueDate',function(req,res){
 	    connection.query("UPDATE tasks SET due_on=? where task_id=?",[req.body.due_on,req.body.taskID],function(err,tasks){
 		connection.release();
 			if (err) {     	
-		     	res.json({"status":"Failure","code" : 101, "message" : err});
+		     	res.json({"status":"Failure","code" : 101, "message" : err,success:false});
 		     	return;
 	     	}
-	     	  var obj={"Success":true,"code":200};
+	     	  var obj={"Success":true,"code":200,success:true};
 	    		res.send(obj);
 
 	     });
@@ -325,10 +326,10 @@ apiRoutes.post('/updateAssignee',function(req,res){
 	    connection.query("UPDATE tasks SET assignee=? where task_id=?",[req.body.assignee,req.body.taskID],function(err,tasks){
 		connection.release();
 			if (err) {     	
-		     	res.json({"status":"Failure","code" : 101, "message" : err});
+		     	res.json({"status":"Failure","code" : 101, "message" : err,success:false});
 		     	return;
 	     	}
-	     	  var obj={"Success":true,"code":200};
+	     	  var obj={"code":200,success:true};
 	    		res.send(obj);
 
 	     });
@@ -352,7 +353,7 @@ async.series([
 
 		connection.query("INSERT INTO conversations SET ?",{text:req.body.message,task_id:req.body.taskID,created_by:currentUser.user_id},function(err,conversations){
 		if (err) {     	
-			res.json({"status":"Failure","code" : 101, "message" : err});
+			res.json({"status":"Failure","code" : 101, "message" : err,success:false});
 			return;
 		}		  
 		  lastInsertID=conversations.insertId;
@@ -367,10 +368,10 @@ async.series([
 		connection.query("SELECT * from conversations where conv_id=?",[lastInsertID],function(err,conversations){
 		connection.release();
 		if (err) {     	
-			res.json({"status":"Failure","code" : 101, "message" : err});
+			res.json({"status":"Failure","code" : 101, "message" : err,success:false});
 			return;
 		}
-		var obj={"Success":true,"code":200,"conversations":conversations};
+		var obj={success:true,"code":200,"conversations":conversations};
 		res.send(obj);
 		});
 	}
@@ -397,7 +398,7 @@ async.series([
 
 		connection.query("DELETE FROM followers where task_id=?",[req.body.taskID],function(err,row){
 		if (err) {     	
-			res.json({"status":"Failure","code" : 101, "message" : err});
+			res.json({"status":"Failure","code" : 101, "message" : err,success:false});
 			return;
 		} 
 		  callback(null,'');
@@ -413,7 +414,7 @@ async.series([
 
 			connection.query(sql,[followers],function(err,row){
 				if (err) {     	
-					res.json({"status":"Failure","code" : 101, "message" : err});
+					res.json({"status":"Failure","code" : 101, "message" : err,success:false});
 					return;
 				}			
 				callback(null,'');
@@ -424,10 +425,10 @@ async.series([
 		   connection.query("select user.user_id,user.firstname,user.lastname,user.email from followers as follow INNER JOIN users as user ON user.user_id=follow.user_id where follow.task_id=?",[req.body.taskID],function(err,followersRow){
 	    	connection.release();
 			if (err) {     	
-		     	res.json({"status":"Failure","code" : 101, "message" : err});
+		     	res.json({"status":"Failure","code" : 101, "message" : err,success:false});
 		     	return;
 	     	}
-	    	var obj={"Success":true,"code":200,"followers":followersRow};
+	    	var obj={success:true,"code":200,"followers":followersRow};
 			res.send(obj);
      	});
 
@@ -516,10 +517,10 @@ apiRoutes.post('/saveAttachment',function(req,res){
     		connection.query("INSERT INTO attachments SET?",{task_id:req.body.taskID,upload_by:currentUser.user_id,file_name:req.file.filename,download_url:req.file.path,original_name:req.file.originalname,mimetype:req.file.mimetype,file_size:req.file.size},function(err,row){
     		connection.release();	
 					if (err) {     	
-						res.json({"status":"Failure","code" : 101, "message" : err});
+						res.json({"status":"Failure","code" : 101, "message" : err,success:false});
 						return;
 					}
-					var obj={"Success":true,"code":200,"attach_id":row.insertId};
+					var obj={success:true,"code":200,"attach_id":row.insertId};
 					res.send(obj);
 					});				
     	});
@@ -550,7 +551,7 @@ async.series([
 		{
 			connection.query("INSERT INTO tasks SET ?",{task_name:req.body.task_name,task_description:req.body.task_description,created_by:currentUser.user_id,project_id:req.body.projectID,task_priority:Date.now(),assignee:currentUser.user_id,is_section:req.body.isSection},function(err,row){
 			if (err) {     	
-				res.json({"status":"Failure","code" : 101, "message" : err});
+				res.json({"status":"Failure","code" : 101, "message" : err,success:false});
 				return;
 			}		  
 			  lastInsertID=row.insertId;
@@ -564,7 +565,7 @@ async.series([
 		{
 			connection.query("INSERT INTO tasks SET ?",{task_name:req.body.task_name,task_description:req.body.task_description,created_by:currentUser.user_id,project_id:req.body.projectID,task_priority:Date.now(),is_section:req.body.isSection},function(err,row){
 			if (err) {     	
-				res.json({"status":"Failure","code" : 101, "message" : err});
+				res.json({"status":"Failure","code" : 101, "message" : err,success:false});
 				return;
 			}		  
 			  lastInsertID=row.insertId;
@@ -579,10 +580,10 @@ async.series([
 		connection.query("SELECT task.*,pro.pro_name,pro.pro_id FROM  tasks AS task LEFT JOIN projects AS pro ON task.project_id = pro.pro_id WHERE task.task_id =?",[lastInsertID],function(err,row){
 		connection.release();
 		if (err) {     	
-			res.json({"status":"Failure","code" : 101, "message" : err});
+			res.json({"status":"Failure","code" : 101, "message" : err,success:false});
 			return;
 		}
-		var obj={"Success":true,"code":200,"task":row};
+		var obj={success:true,"code":200,"task":row};
 		res.send(obj);
 		});
 	}
@@ -605,10 +606,10 @@ apiRoutes.post('/updateTaskName',function(req,res){
 	    connection.query("UPDATE tasks SET task_name=? where task_id=?",[req.body.task_name,req.body.taskID],function(err,tasks){
 		connection.release();
 			if (err) {     	
-		     	res.json({"status":"Failure","code" : 101, "message" : err});
+		     	res.json({"status":"Failure","code" : 101, "message" : err,success:false});
 		     	return;
 	     	}
-	     	  var obj={"Success":true,"code":200};
+	     	  var obj={success:false,"code":200};
 	    		res.send(obj);
 
 	     });
@@ -628,10 +629,10 @@ apiRoutes.post('/updateTaskDescription',function(req,res){
 	    connection.query("UPDATE tasks SET task_description=? where task_id=?",[req.body.task_description,req.body.taskID],function(err,tasks){
 		connection.release();
 			if (err) {     	
-		     	res.json({"status":"Failure","code" : 101, "message" : err});
+		     	res.json({"status":"Failure","code" : 101, "message" : err,success:false});
 		     	return;
 	     	}
-	     	  var obj={"Success":true,"code":200};
+	     	  var obj={success:false,"code":200};
 	    		res.send(obj);
 
 	     });
@@ -655,14 +656,14 @@ apiRoutes.post('/updateTaskPriority',function(req,res){
 	    {
 		    connection.query("UPDATE tasks SET  task_priority=?,section_id=? where task_id=?",[sequenceNumber++,taskWithPriority[i].section_id,taskWithPriority[i].task_id],function(err,tasks){
 				if (err) {     	
-			     	res.json({"status":"Failure","code" : 101, "message" : err});
+			     	res.json({"status":"Failure","code" : 101, "message" : err,success:false});
 			     	return;
 		     	}
 		     		itemsProcessed++;
 		     		if(taskWithPriority.length==itemsProcessed)
 		     		{		     			
 		     			connection.release();
-		     	  		var obj={"Success":true,"code":200};
+		     	  		var obj={success:false,"code":200};
 		    			res.send(obj);
 		    		}
 
@@ -685,7 +686,7 @@ apiRoutes.get('/download', function(req, res){
        	connection.query("select * from attachments where attach_id=?",[req.query.assert_id],function(err,attachmentsRows){
 	    connection.release();
 			if (err) {     	
-		     	res.json({"status":"Failure","code" : 101, "message" : err});
+		     	res.json({"status":"Failure","code" : 101, "message" : err,success:false});
 		     	return;
 	     	}
 	     	var download_url=attachmentsRows[0].download_url;
@@ -718,7 +719,7 @@ apiRoutes.post('/deleteAssert', function(req, res){
        	connection.query("select * from attachments where attach_id=?",[req.body.assert_id],function(err,attachmentsRows){
 	    
 			if (err) {     	
-		     	res.json({"status":"Failure","code" : 101, "message" : err});
+		     	res.json({"status":"Failure","code" : 101, "message" : err,success:false});
 		     	return;
 	     	}
 	     	var download_url=attachmentsRows[0].download_url;
@@ -726,7 +727,7 @@ apiRoutes.post('/deleteAssert', function(req, res){
 			var file = __dirname+'/'+download_url;
 			fs.unlink(file, function(err){
 		           if (err) {     	
-				     	res.json({"status":"Failure","code" : 101, "message" : err});
+				     	res.json({"status":"Failure","code" : 101, "message" : err,success:false});
 				     	return;
 		     		}
 
@@ -736,7 +737,7 @@ apiRoutes.post('/deleteAssert', function(req, res){
 							res.json({"status":"Failure","code" : 101, "message" : err});
 							}
 
-							var obj={"Success":true,"code":200};
+							var obj={success:false,"code":200};
 		    				res.send(obj);
 
 						});
@@ -752,6 +753,48 @@ apiRoutes.post('/deleteAssert', function(req, res){
 
 });
 
+
+apiRoutes.post('/updateTaskStatus', function(req, res){
+	var currentUser=req.decoded;
+	var taskStatus=req.body.taskStatus;
+	var currentDateTime=moment().format("YYYY-MM-DD HH:mm:ss");
+	console.log(currentDateTime);
+		pool.getConnection(function(err,connection){
+	 	if (err) 
+	 	{
+	      res.json({success: false,"code" : 100, "message" : err});
+	      return;
+	    }
+
+	   connection.query("update tasks set completed=?,completed_at=? where task_id=?",[taskStatus,currentDateTime,req.body.taskID],function(err,row){
+	    
+		if (err) {     	
+		     	res.json({"status":"Failure","code" : 101, "message" : err,success:false});
+		     	return;
+	     	}
+
+		var projectID=req.body.projectID;
+		connection.query("SELECT task.*,pro.pro_name,pro.pro_id,b.task_name as section_name FROM  tasks AS task LEFT JOIN projects AS pro ON task.project_id = pro.pro_id  LEFT JOIN tasks as b ON b.task_id=task.section_id WHERE task.project_id =? and task.completed=0 order by task.task_priority ASC",[projectID],function(err,tasks){
+		connection.release();
+		if (err) {     	
+		 	res.json({"status":"Failure","code" : 101, "message" : err,success:false});
+		 	return;
+			}
+			var obj={success:true,"code":200,"tasks":tasks};
+		    res.send(obj);
+			
+		});
+
+		//var obj={"Success":true,"code":200};
+			//res.send(tasks);
+
+	     });
+
+	});
+
+
+
+});
 
 app.use('/api', apiRoutes);
 
