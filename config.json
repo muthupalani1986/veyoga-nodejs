@@ -1,0 +1,11 @@
+{
+	"MYSQLConfig":{
+		"connectionLimit":100,
+		"host":"localhost",
+		"user":"root",
+		"password":"password",
+		"database":"veyoga",
+		"debug":false
+
+	}	
+}

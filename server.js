@@ -12,13 +12,14 @@ var fs = require('fs');
 var path = require('path');
 var mime = require('mime');
 var moment = require('moment');
+var veyogaConfig=require('./config.json');
 var pool      =    mysql.createPool({
-    connectionLimit : 100, //important
-    host     : 'localhost',
-    user     : 'root',
-    password : 'password',
-    database : 'veyoga',
-    debug    :  false
+    connectionLimit : veyogaConfig.MYSQLConfig.connectionLimit, //important
+    host     : veyogaConfig.MYSQLConfig.host,
+    user     : veyogaConfig.MYSQLConfig.user,
+    password : veyogaConfig.MYSQLConfig.password,
+    database : veyogaConfig.MYSQLConfig.database,
+    debug    : veyogaConfig.MYSQLConfig.debug
 });
 
 app.set('superSecret', 'ilovescotchyscotch');
@@ -219,7 +220,7 @@ apiRoutes.post('/getConversations',function(req,res){
 	    var attachments={};
 async.series([
     function(callback) {
-       	connection.query("select * from conversations where task_id=?",[taskID],function(err,conversationsRow){
+       	connection.query("select conv.*,usr.firstname,usr.lastname from conversations as conv LEFT JOIN users as usr  on usr.user_id=conv.created_by where conv.task_id=?",[taskID],function(err,conversationsRow){
 	    
 			if (err) {     	
 		     	res.json({success: false,"status":"Failure","code" : 101, "message" : err});
@@ -301,11 +302,30 @@ apiRoutes.post('/updateDueDate',function(req,res){
 	      return;
 	    }
 	    connection.query("UPDATE tasks SET due_on=? where task_id=?",[req.body.due_on,req.body.taskID],function(err,tasks){
-		connection.release();
+		
 			if (err) {     	
 		     	res.json({"status":"Failure","code" : 101, "message" : err,success:false});
 		     	return;
 	     	}
+	     	var act_id;
+	     	if(req.body.isDueDateRemoved=='true'){
+	     		act_id=9;
+	     	}
+	     	else
+	     	{
+	     		act_id=4;
+	     	}
+
+	     	var created_at=moment().format("YYYY-MM-DD HH:mm:ss");
+	     	connection.query("INSERT INTO activity_logs SET ?",{task_id:req.body.taskID,act_id:act_id,log_by:currentUser.user_id,created_at:created_at,due_date:req.body.due_on},function(err,row){
+	     	connection.release();
+	     		if (err) {
+	     			res.json({"status":"Failure","code" : 101, "message" : err,success:false});
+		     		return;
+	     		}
+	     	});
+
+	     	
 	     	  var obj={"code":200,success:true};
 	    		res.send(obj);
 
@@ -324,11 +344,32 @@ apiRoutes.post('/updateAssignee',function(req,res){
 	      return;
 	    }
 	    connection.query("UPDATE tasks SET assignee=? where task_id=?",[req.body.assignee,req.body.taskID],function(err,tasks){
-		connection.release();
+		
 			if (err) {     	
 		     	res.json({"status":"Failure","code" : 101, "message" : err,success:false});
 		     	return;
 	     	}
+	     	
+	     	var obj;
+	     	var created_at=moment().format("YYYY-MM-DD HH:mm:ss");
+	     	if(req.body.isAssigneeRemoved=='true'){
+	     		
+	     		obj={task_id:req.body.taskID,act_id:8,log_by:currentUser.user_id,created_at:created_at,unassigned_from:req.body.unAssignedFrom}
+	     	}
+	     	else
+	     	{	     		
+	     		obj={task_id:req.body.taskID,act_id:2,log_by:currentUser.user_id,created_at:created_at,assigned_to:req.body.assignee}
+	     	}
+
+	     	
+	     	connection.query("INSERT INTO activity_logs SET ?",obj,function(err,row){
+	     	connection.release();
+	     		if (err) {
+	     			res.json({"status":"Failure","code" : 101, "message" : err,success:false});
+		     		return;
+	     		}
+	     	});
+
 	     	  var obj={"code":200,success:true};
 	    		res.send(obj);
 
@@ -365,7 +406,7 @@ async.series([
 	},
 	function(callback) {
 
-		connection.query("SELECT * from conversations where conv_id=?",[lastInsertID],function(err,conversations){
+		connection.query("SELECT conv.*,usr.firstname,usr.lastname from conversations as conv LEFT JOIN users as usr  on usr.user_id=conv.created_by where conv.conv_id=?",[lastInsertID],function(err,conversations){
 		connection.release();
 		if (err) {     	
 			res.json({"status":"Failure","code" : 101, "message" : err,success:false});
@@ -560,7 +601,19 @@ async.series([
 				return;
 			}		  
 			  lastInsertID=row.insertId;
-			  connection.query("INSERT INTO followers SET ?",{task_id:lastInsertID,user_id:currentUser.user_id},function(err,row){});
+			  var created_at=moment().format("YYYY-MM-DD HH:mm:ss");
+			  connection.query("INSERT INTO followers SET ?",{task_id:lastInsertID,user_id:currentUser.user_id},function(err,row){
+	     		if (err) {
+	     			res.json({"status":"Failure","code" : 101, "message" : err,success:false});
+		     		return;
+	     		}
+			  });
+			  connection.query("INSERT INTO activity_logs SET ?",{task_id:lastInsertID,act_id:1,log_by:currentUser.user_id,created_at:created_at},function(err,row){
+	     		if (err) {
+	     			res.json({"status":"Failure","code" : 101, "message" : err,success:false});
+		     		return;
+	     		}
+			  });
 			  callback(null,'');	
 
 			});	
@@ -574,7 +627,19 @@ async.series([
 				return;
 			}		  
 			  lastInsertID=row.insertId;
-			  connection.query("INSERT INTO followers SET ?",{task_id:lastInsertID,user_id:currentUser.user_id},function(err,row){});
+			  var created_at=moment().format("YYYY-MM-DD HH:mm:ss");
+			  connection.query("INSERT INTO followers SET ?",{task_id:lastInsertID,user_id:currentUser.user_id},function(err,row){
+	     		if (err) {
+	     			res.json({"status":"Failure","code" : 101, "message" : err,success:false});
+		     		return;
+	     		}
+			  });
+			  connection.query("INSERT INTO activity_logs SET ?",{task_id:lastInsertID,act_id:1,log_by:currentUser.user_id,created_at:created_at},function(err,row){
+	     		if (err) {
+	     			res.json({"status":"Failure","code" : 101, "message" : err,success:false});
+		     		return;
+	     		}
+			  });
 			  callback(null,'');	
 
 			});
@@ -609,11 +674,19 @@ apiRoutes.post('/updateTaskName',function(req,res){
 	      return;
 	    }
 	    connection.query("UPDATE tasks SET task_name=? where task_id=?",[req.body.task_name,req.body.taskID],function(err,tasks){
-		connection.release();
+		
 			if (err) {     	
 		     	res.json({"status":"Failure","code" : 101, "message" : err,success:false});
 		     	return;
 	     	}
+	     	var created_at=moment().format("YYYY-MM-DD HH:mm:ss");
+	     	connection.query("INSERT INTO activity_logs SET ?",{task_id:req.body.taskID,act_id:7,log_by:currentUser.user_id,created_at:created_at},function(err,row){
+	     	connection.release();
+	     		if (err) {
+	     			res.json({"status":"Failure","code" : 101, "message" : err,success:false});
+		     		return;
+	     		}
+	     	});	
 	     	  var obj={success:true,"code":200};
 	    		res.send(obj);
 
@@ -632,11 +705,23 @@ apiRoutes.post('/updateTaskDescription',function(req,res){
 	      return;
 	    }
 	    connection.query("UPDATE tasks SET task_description=? where task_id=?",[req.body.task_description,req.body.taskID],function(err,tasks){
-		connection.release();
+		
 			if (err) {     	
 		     	res.json({"status":"Failure","code" : 101, "message" : err,success:false});
 		     	return;
 	     	}
+
+	     	var created_at=moment().format("YYYY-MM-DD HH:mm:ss");
+	     	connection.query("INSERT INTO activity_logs SET ?",{task_id:req.body.taskID,act_id:10,log_by:currentUser.user_id,created_at:created_at},function(err,row){
+	     	connection.release();
+	     		if (err) {
+	     			res.json({"status":"Failure","code" : 101, "message" : err,success:false});
+		     		return;
+	     		}
+	     	});
+
+	     	
+
 	     	  var obj={success:true,"code":200};
 	    		res.send(obj);
 
@@ -784,6 +869,21 @@ async.series([
 		     	res.json({"status":"Failure","code" : 101, "message" : err,success:false});
 		     	return;
 	     	}
+	     	var act_id;
+	     	if(taskStatus==1){
+	     		act_id=5;
+	     	}else{
+	     		act_id=6;
+	     	}
+	     	var created_at=moment().format("YYYY-MM-DD HH:mm:ss");
+	     	connection.query("INSERT INTO activity_logs SET ?",{task_id:req.body.taskID,act_id:act_id,log_by:currentUser.user_id,created_at:created_at},function(err,row){
+	     	connection.release();
+	     		if (err) {
+	     			res.json({"status":"Failure","code" : 101, "message" : err,success:false});
+		     		return;
+	     		}
+	     	});
+
 	     	callback(null, '');
 	     });
 		
