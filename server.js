@@ -218,14 +218,17 @@ apiRoutes.post('/getConversations',function(req,res){
 	    var coversation={};
 	    var followers={};
 	    var attachments={};
-async.series([
+	    var activityLogs={};
+	    var par=1;
+async.parallel([
     function(callback) {
        	connection.query("select conv.*,usr.firstname,usr.lastname from conversations as conv LEFT JOIN users as usr  on usr.user_id=conv.created_by where conv.task_id=?",[taskID],function(err,conversationsRow){
 	    
 			if (err) {     	
 		     	res.json({success: false,"status":"Failure","code" : 101, "message" : err});
 		     	return;
-	     	}
+	     	}	     	
+	     	
 	     	coversation=conversationsRow;
 	     	callback(null, '');
      	});
@@ -254,13 +257,26 @@ async.series([
 	     	attachments=attachmentsRows;	     	
 	     	callback(null, '');
      	});
+    },
+
+    function(callback) {
+       	connection.query("SELECT log.task_id,log.log_by,usr.firstname as logby,log.act_id,act.act_name,log.assigned_to,assignee.firstname as assignee_name,pro.pro_name,log.due_date,log.original_name,log.created_at FROM activity_logs as log LEFT JOIN users as usr on usr.user_id=log.log_by LEFT JOIN activities as act on act.act_id=log.act_id LEFT JOIN users as assignee on assignee.user_id=log.assigned_to LEFT JOIN projects as pro on log.pro_id=pro.pro_id where log.task_id=?",[taskID],function(err,activity_logs){
+	    
+			if (err) {     	
+		     	res.json({"status":"Failure","code" : 101, "message" : err,success: false});
+		     	return;
+	     	}
+	     	activityLogs=activity_logs;	     	
+	     	callback(null, '');
+     	});
     }
+
 ],
 // optional callback
 function(err, results) {
     
 	connection.release();
-    obj={"coversation":coversation,"followers":followers,"attachments":attachments,success: true};
+    obj={"coversation":coversation,"followers":followers,"attachments":attachments,'activityLogs':activityLogs,success: true};
     res.send(obj);
 
 });
@@ -308,16 +324,19 @@ apiRoutes.post('/updateDueDate',function(req,res){
 		     	return;
 	     	}
 	     	var act_id;
+	     	var due_on;
 	     	if(req.body.isDueDateRemoved=='true'){
 	     		act_id=9;
+	     		due_on=req.body.old_due_on;
 	     	}
 	     	else
 	     	{
 	     		act_id=4;
+	     		due_on=req.body.due_on;
 	     	}
 
 	     	var created_at=moment().format("YYYY-MM-DD HH:mm:ss");
-	     	connection.query("INSERT INTO activity_logs SET ?",{task_id:req.body.taskID,act_id:act_id,log_by:currentUser.user_id,created_at:created_at,due_date:req.body.due_on},function(err,row){
+	     	connection.query("INSERT INTO activity_logs SET ?",{task_id:req.body.taskID,act_id:act_id,log_by:currentUser.user_id,created_at:created_at,due_date:due_on},function(err,row){
 	     	connection.release();
 	     		if (err) {
 	     			res.json({"status":"Failure","code" : 101, "message" : err,success:false});
@@ -354,7 +373,7 @@ apiRoutes.post('/updateAssignee',function(req,res){
 	     	var created_at=moment().format("YYYY-MM-DD HH:mm:ss");
 	     	if(req.body.isAssigneeRemoved=='true'){
 	     		
-	     		obj={task_id:req.body.taskID,act_id:8,log_by:currentUser.user_id,created_at:created_at,unassigned_from:req.body.unAssignedFrom}
+	     		obj={task_id:req.body.taskID,act_id:8,log_by:currentUser.user_id,created_at:created_at,assigned_to:req.body.unAssignedFrom}
 	     	}
 	     	else
 	     	{	     		
@@ -608,12 +627,14 @@ async.series([
 		     		return;
 	     		}
 			  });
+
 			  connection.query("INSERT INTO activity_logs SET ?",{task_id:lastInsertID,act_id:1,log_by:currentUser.user_id,created_at:created_at},function(err,row){
 	     		if (err) {
 	     			res.json({"status":"Failure","code" : 101, "message" : err,success:false});
 		     		return;
 	     		}
 			  });
+			 
 			  callback(null,'');	
 
 			});	
@@ -640,6 +661,14 @@ async.series([
 		     		return;
 	     		}
 			  });
+
+			 connection.query("INSERT INTO activity_logs SET ?",{task_id:lastInsertID,act_id:3,log_by:currentUser.user_id,created_at:created_at,pro_id:req.body.projectID},function(err,row){
+	     		if (err) {
+	     			res.json({"status":"Failure","code" : 101, "message" : err,success:false});
+		     		return;
+	     		}
+			  });
+
 			  callback(null,'');	
 
 			});
@@ -680,7 +709,7 @@ apiRoutes.post('/updateTaskName',function(req,res){
 		     	return;
 	     	}
 	     	var created_at=moment().format("YYYY-MM-DD HH:mm:ss");
-	     	connection.query("INSERT INTO activity_logs SET ?",{task_id:req.body.taskID,act_id:7,log_by:currentUser.user_id,created_at:created_at},function(err,row){
+	     	connection.query("INSERT INTO activity_logs SET ?",{task_id:req.body.taskID,act_id:7,log_by:currentUser.user_id,created_at:created_at,original_name:req.body.old_task_name},function(err,row){
 	     	connection.release();
 	     		if (err) {
 	     			res.json({"status":"Failure","code" : 101, "message" : err,success:false});
@@ -712,7 +741,7 @@ apiRoutes.post('/updateTaskDescription',function(req,res){
 	     	}
 
 	     	var created_at=moment().format("YYYY-MM-DD HH:mm:ss");
-	     	connection.query("INSERT INTO activity_logs SET ?",{task_id:req.body.taskID,act_id:10,log_by:currentUser.user_id,created_at:created_at},function(err,row){
+	     	connection.query("INSERT INTO activity_logs SET ?",{task_id:req.body.taskID,act_id:10,log_by:currentUser.user_id,created_at:created_at,original_name:req.body.old_task_description},function(err,row){
 	     	connection.release();
 	     		if (err) {
 	     			res.json({"status":"Failure","code" : 101, "message" : err,success:false});
@@ -877,7 +906,7 @@ async.series([
 	     	}
 	     	var created_at=moment().format("YYYY-MM-DD HH:mm:ss");
 	     	connection.query("INSERT INTO activity_logs SET ?",{task_id:req.body.taskID,act_id:act_id,log_by:currentUser.user_id,created_at:created_at},function(err,row){
-	     	connection.release();
+	     	//connection.release();
 	     		if (err) {
 	     			res.json({"status":"Failure","code" : 101, "message" : err,success:false});
 		     		return;
