@@ -12,6 +12,68 @@ var fs = require('fs');
 var path = require('path');
 var mime = require('mime');
 var moment = require('moment');
+var server = require('http').Server(app);
+var io = require('socket.io')(server);
+server.listen(3000,function(){
+	console.log("Working on port 3000");
+});
+
+var clients =[];
+
+io.sockets.on('connection',function(socket){
+	socket.on('storeClientInfo', function (data) {
+			console.log('storeClientInfo');			
+            var clientInfo = new Object();
+            clientInfo.user_id= data.currentSocketUsr.user_id;
+            clientInfo.email= data.currentSocketUsr.email;
+            clientInfo.firstname= data.currentSocketUsr.firstname;
+            clientInfo.lastname= data.currentSocketUsr.lastname;
+            clientInfo.clientId= socket.id;
+            console.log(clientInfo);
+            clients.push(clientInfo);
+    });
+
+    socket.on('updateInbox',function(data){
+    	   console.log(clients);
+    	    console.log(data.followers);	
+    	for( var i=0, len=data.followers.length; i<len; ++i ){
+    	clients.filter(function(item){
+    		
+    	if(item.user_id==data.followers[i]){
+    		console.log(item.user_id);
+    		console.log(data.followers[i]);
+    			console.log("found");
+    			var clientId=item.clientId;    			
+    			io.sockets.connected[clientId].emit('updateInbox', '');
+    			//clientId.emit('updateInbox',"");
+    		}
+    	});
+
+
+    	}
+
+
+
+    });
+
+socket.on('logoff',function(data){
+	socket.emit("disconnect","");
+});
+	socket.on('disconnect', function (data) {
+		
+		for( var i=0, len=clients.length; i<len; ++i ){
+		    var c = clients[i];
+		    if(c.clientId == socket.id){
+		    	console.log("removed");
+		        clients.splice(i,1);
+		        break;
+		    }
+		}
+	});
+	
+	
+});
+
 var veyogaConfig=require('./config.json');
 var pool      =    mysql.createPool({
     connectionLimit : veyogaConfig.MYSQLConfig.connectionLimit, //important
@@ -21,6 +83,8 @@ var pool      =    mysql.createPool({
     database : veyogaConfig.MYSQLConfig.database,
     debug    : veyogaConfig.MYSQLConfig.debug
 });
+
+
 
 app.set('superSecret', 'ilovescotchyscotch');
 
@@ -40,6 +104,9 @@ var apiRoutes = express.Router();
 apiRoutes.get('/',function(req,res){
 	res.send('Welcome');	
 });
+
+
+
 
 apiRoutes.post('/authenticate',function(req,res){
 pool.getConnection(function(err,connection){
@@ -88,7 +155,7 @@ apiRoutes.use(function(req, res, next) {
     // verifies secret and checks exp
     jwt.verify(token, app.get('superSecret'), function(err, decoded) {      
       if (err) {
-        return res.json({ success: false, message: 'Failed to authenticate token.' });    
+        return res.json({ success: false, message: 'Failed to authenticate token.',"code":1001 });    
       } else {
         // if everything is good, save to request for use in other routes
         req.decoded = decoded;    
@@ -416,10 +483,35 @@ async.series([
 			res.json({"status":"Failure","code" : 101, "message" : err,success:false});
 			return;
 		}		  
-		  lastInsertID=conversations.insertId;
-		  callback(null,'');
-		
+		lastInsertID=conversations.insertId;
+       	connection.query("select * from followers where task_id=? and user_id!=?",[req.body.taskID,currentUser.user_id],function(err,followersRow){    
+				if (err) {     	
+			     	res.json({"status":"Failure","code" : 101, "message" : err,success: false});
+			     	return;
+		     	}
+		     	var itemsProcessed=0;
+		     	if(followersRow.length==0){
+		     		callback(null,'');
+		     	}
+		     	for (var i = 0; i < followersRow.length; i++) {
+		     		connection.query("INSERT INTO inbox SET?",{user_id:followersRow[i].user_id,task_id:req.body.taskID,conv_id:lastInsertID},function(err,row){
+			     	if (err) {     	
+				     	res.json({"status":"Failure","code" : 101, "message" : err,success: false});
+				     	return;
+			     		}
+			     		
+			     		itemsProcessed++;
+			     		if(followersRow.length==itemsProcessed){
+			     			callback(null,'');	
+			     		}
+			     		
 
+		     		});
+		     	}
+
+	     	});
+
+	     	
 		});	    
 		
 	},
@@ -976,8 +1068,106 @@ async.series([
 
 });
 
+apiRoutes.post('/myInbox', function(req, res){
+	var currentUser=req.decoded;
+	pool.getConnection(function(err,connection){
+		if (err){
+			res.json({success: false,"code" : 100, "message" : err});
+			return;
+		}
+       	var inbox={"inbox":[]};
+       	connection.query("SELECT inbox.*,t1.*,t2.task_name as section_name,pro.pro_id,pro.pro_name FROM (SELECT *  FROM  inbox WHERE user_id=? order by created_at DESC ) as inbox LEFT JOIN tasks as t1 on t1.task_id=inbox.task_id LEFT JOIN tasks as t2 on t2.task_id=t1.section_id LEFT JOIN projects as pro on pro.pro_id=t1.project_id group by t1.task_id ORDER BY inbox.created_at  DESC",[currentUser.user_id],function(err,taskDetails){	    
+			if (err) {     	
+		     	res.json({success: false,"status":"Failure","code" : 101, "message" : err});
+		     	return;
+	     	}
+	     		     	
+	     	var itemsProcessed=0;
+
+	     	if(taskDetails.length==0){
+	     		var obj={success:true,"code":200,"inbox":inbox};
+				res.send(obj);
+				return;
+	     	}
+
+	     	for (var i = 0, len = taskDetails.length; i < len; i++) {
+	     		 
+				   connection.query("SELECT inb.user_id,conv.*,usr.firstname,usr.lastname  FROM  inbox as inb INNER JOIN conversations as conv on conv.conv_id=inb.conv_id LEFT JOIN users as usr  on usr.user_id=conv.created_by WHERE inb.user_id=? and inb.task_id=? and inb.is_archieve=0 order by conv.created_at ASC",[currentUser.user_id,taskDetails[i].task_id],function(err,conversationsRow){	    
+				   	
+						if (err) {     	
+					     	res.json({success: false,"status":"Failure","code" : 101, "message" : err});
+					     	return;
+				     	}
+				     	else
+				     	{
+				     		if(conversationsRow.length>0)
+				     		{
+					     		var obj={"taskDetails":taskDetails[itemsProcessed],"unreadComments":conversationsRow};
+					     		inbox.inbox.push(obj);
+				     		}
+				     		itemsProcessed++;
+				     		if(taskDetails.length==itemsProcessed){				     				
+				     			var obj={success:true,"code":200,"inbox":inbox};
+								res.send(obj);
+								return;	
+				     		}
+				     		
+				     	}
+				     	
+			     	});	
+				
+
+	     	}
+	     	
+
+     	});
+
+
+
+	});
+
+});
+
+
+apiRoutes.post('/archieveMyInbox', function(req, res){
+	var currentUser=req.decoded;
+	var task_ids=JSON.parse(req.body.task_ids);
+	pool.getConnection(function(err,connection){
+		if (err){
+			res.json({success: false,"code" : 100, "message" : err});
+			return;
+		}
+		var itemsProcessed=0;
+		for (var i = 0, len = task_ids.length; i < len; i++) 
+		{       	
+       	connection.query("UPDATE inbox SET is_archieve=1 WHERE task_id=? and user_id=?",[task_ids[i],currentUser.user_id],function(err,taskDetails){	    
+			if (err) {     	
+		     	res.json({success: false,"status":"Failure","code" : 101, "message" : err});
+		     	return;
+	     	}
+	     	itemsProcessed++;
+	     	if(task_ids.length==itemsProcessed){	
+	     		var obj={success:true,"code":200};
+				res.send(obj);
+	     	}
+
+     	});
+       }
+
+
+
+	});
+
+});
+
 app.use('/api', apiRoutes);
 
-app.listen(3000,function(){
-    console.log("Working on port 3000");
+
+/*io.on('connection', function(socket){
+	console.log("here")
+  socket.emit('an event', { some: 'data' });
 });
+
+/*app.listen(3000,function(){
+    console.log("Working on port 3000");
+});*/
