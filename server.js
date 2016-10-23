@@ -1160,6 +1160,27 @@ apiRoutes.post('/archieveMyInbox', function(req, res){
 
 });
 
+apiRoutes.post('/createProject', function(req, res){
+	var currentUser=req.decoded;
+	pool.getConnection(function(err,connection){
+		if (err){
+			res.json({success: false,"code" : 100, "message" : err});
+			return;
+		}
+		connection.query("INSERT INTO projects SET ?",{pro_name:req.body.pro_name,pro_description:req.body.pro_description,team_id:req.body.team_id,created_by:currentUser.user_id},function(err,row){
+		connection.release();
+			if (err) {     	
+		     	res.json({success: false,"status":"Failure","code" : 101, "message" : err});
+		     	return;
+	     	}
+	     	var obj={success:true,"code":200,"project_id":row.insertId};
+			res.send(obj);
+
+		});
+
+	});
+});
+
 app.use('/api', apiRoutes);
 
 
