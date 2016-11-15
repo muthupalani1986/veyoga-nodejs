@@ -259,7 +259,7 @@ apiRoutes.post('/getTasks',function(req,res){
 	      return;
 	    } 
 	    var projectID=req.body.projectID;
-	    connection.query("SELECT task.*,pro.pro_name,pro.pro_id,b.task_name as section_name FROM  tasks AS task LEFT JOIN projects AS pro ON task.project_id = pro.pro_id  LEFT JOIN tasks as b ON b.task_id=task.section_id WHERE task.project_id =? and task.completed=0 order by task.task_priority ASC",[projectID],function(err,tasks){
+	    connection.query("SELECT task.*,pro.pro_name,pro.pro_id,b.task_name as section_name,c.task_name as parent_name FROM  tasks AS task LEFT JOIN projects AS pro ON task.project_id = pro.pro_id  LEFT JOIN tasks as b ON b.task_id=task.section_id LEFT JOIN tasks as c ON c.task_id=task.parent_id WHERE task.project_id =? and task.completed=0 and task.parent_id=0 order by task.task_priority ASC",[projectID],function(err,tasks){
 	    connection.release();
 			if (err) {     	
 		     	res.json({success: false,"status":"Failure","code" : 101, "message" : err});
@@ -286,6 +286,8 @@ apiRoutes.post('/getConversations',function(req,res){
 	    var followers={};
 	    var attachments={};
 	    var activityLogs={};
+	    var subtasks={};
+	    var subtaskParents={"items":[]};
 	    var par=1;
 async.parallel([
     function(callback) {
@@ -336,6 +338,57 @@ async.parallel([
 	     	activityLogs=activity_logs;	     	
 	     	callback(null, '');
      	});
+    },
+
+
+    function(callback) {
+       	connection.query("SELECT task.*,pro.pro_name,pro.pro_id,b.task_name as section_name,c.task_name as parent_name FROM  tasks AS task LEFT JOIN projects AS pro ON task.project_id = pro.pro_id  LEFT JOIN tasks as b ON b.task_id=task.section_id LEFT JOIN tasks as c ON c.task_id=task.parent_id WHERE task.parent_id =? order by task.task_priority ASC",[taskID],function(err,subtasksRow){
+	    
+			if (err) {     	
+		     	res.json({"status":"Failure","code" : 101, "message" : err,success: false});
+		     	return;
+	     	}
+	     	subtasks=subtasksRow;	
+	     	callback(null, '');
+     	});
+    },
+
+    function(callback) {
+       	connection.query("SELECT  * from tasks where task_id=? and parent_id!=0 LIMIT 1",[taskID],function(err,results){
+	    
+			if (err) {     	
+		     	res.json({"status":"Failure","code" : 101, "message" : err,success: false});
+		     	return;
+	     	}
+	     	
+			if(results.length!=0){
+		     	getParentsDetails(results[0].parent_id);
+			}
+			else
+			{
+				callback(null, '');
+			}
+
+	     	
+     	});
+
+		var getParentsDetails = function(parent_id) {				
+			    if (parent_id!=0) {			        
+				        connection.query("SELECT task.*,pro.pro_name,pro.pro_id,b.task_name as section_name,c.task_name as parent_name FROM  tasks AS task LEFT JOIN projects AS pro ON task.project_id = pro.pro_id  LEFT JOIN tasks as b ON b.task_id=task.section_id LEFT JOIN tasks as c ON c.task_id=task.parent_id WHERE task.task_id =? order by task.task_priority ASC",[parent_id],function(err,results){
+						if (err) {     	
+					     	res.json({"status":"Failure","code" : 101, "message" : err,success: false});
+					     	return;
+				     	}
+				     	console.log("parent_id: "+parent_id);
+				     	console.log(results);
+				     	subtaskParents.items.push(results[0]);
+				     	return getParentsDetails(results[0].parent_id);
+		     		});
+			    } else {
+			    	callback(null, '');
+			    }
+			};
+
     }
 
 ],
@@ -343,7 +396,7 @@ async.parallel([
 function(err, results) {
     
 	connection.release();
-    obj={"coversation":coversation,"followers":followers,"attachments":attachments,'activityLogs':activityLogs,success: true};
+    obj={"coversation":coversation,"followers":followers,"attachments":attachments,'activityLogs':activityLogs,"subtasks":subtasks,"subtaskParents":subtaskParents.items,success: true};
     res.send(obj);
 
 });
@@ -361,7 +414,7 @@ apiRoutes.post('/myTasks',function(req,res){
 	      res.json({success: false,"code" : 100, "message" : err});
 	      return;
 	    }
-	    connection.query("SELECT task.*,pro.pro_name,pro.pro_id,b.task_name as section_name FROM  tasks AS task LEFT JOIN projects AS pro ON task.project_id = pro.pro_id LEFT JOIN tasks as b ON b.task_id=task.section_id where task.assignee =? and task.completed=0",[currentUser.user_id],function(err,myTasksRow){
+	    connection.query("SELECT task.*,pro.pro_name,pro.pro_id,b.task_name as section_name,c.task_name as parent_name FROM  tasks AS task LEFT JOIN projects AS pro ON task.project_id = pro.pro_id LEFT JOIN tasks as b ON b.task_id=task.section_id LEFT JOIN tasks as c ON c.task_id=task.parent_id where task.assignee =? and task.completed=0",[currentUser.user_id],function(err,myTasksRow){
 		connection.release();
 			if (err) {     	
 		     	res.json({"status":"Failure","code" : 101, "message" : err,success: false});
@@ -693,7 +746,14 @@ apiRoutes.get('/uploadForm',function(req,res){
 
 
 apiRoutes.post('/createTask',function(req,res){
-	var currentUser=req.decoded;	
+	var currentUser=req.decoded;
+	var parent_id
+	if(typeof req.body.parent_id!='undefined'){
+		parent_id=req.body.parent_id;
+	}
+	else{
+		parent_id=0
+	}	
 	pool.getConnection(function(err,connection){
 	 	if (err) 
 	 	{
@@ -706,7 +766,7 @@ async.series([
 	function(callback) {
 		if(req.body.currentTab=='myTasks')
 		{
-			connection.query("INSERT INTO tasks SET ?",{task_name:req.body.task_name,task_description:req.body.task_description,created_by:currentUser.user_id,project_id:req.body.projectID,task_priority:Date.now(),assignee:currentUser.user_id,is_section:req.body.isSection},function(err,row){
+			connection.query("INSERT INTO tasks SET ?",{task_name:req.body.task_name,task_description:req.body.task_description,created_by:currentUser.user_id,project_id:req.body.projectID,task_priority:Date.now(),assignee:currentUser.user_id,is_section:req.body.isSection,parent_id:parent_id},function(err,row){
 			if (err) {     	
 				res.json({"status":"Failure","code" : 101, "message" : err,success:false});
 				return;
@@ -734,7 +794,7 @@ async.series([
 		}
 		else
 		{
-			connection.query("INSERT INTO tasks SET ?",{task_name:req.body.task_name,task_description:req.body.task_description,created_by:currentUser.user_id,project_id:req.body.projectID,task_priority:Date.now(),is_section:req.body.isSection},function(err,row){
+			connection.query("INSERT INTO tasks SET ?",{task_name:req.body.task_name,task_description:req.body.task_description,created_by:currentUser.user_id,project_id:req.body.projectID,task_priority:Date.now(),is_section:req.body.isSection,parent_id:parent_id},function(err,row){
 			if (err) {     	
 				res.json({"status":"Failure","code" : 101, "message" : err,success:false});
 				return;
@@ -1180,6 +1240,77 @@ apiRoutes.post('/createProject', function(req, res){
 
 	});
 });
+
+
+apiRoutes.post('/createTeam', function(req, res){
+	var currentUser=req.decoded;
+	var teamFollowers=JSON.parse(req.body.team_followers);
+	var lastTeamInsertID;
+	pool.getConnection(function(err,connection){
+		if (err){
+			res.json({success: false,"code" : 100, "message" : err});
+			return;
+		}
+		connection.query("INSERT INTO teams SET ?",{team_name:req.body.team_name,team_desc:req.body.team_desc,org_id:currentUser.org_id},function(err,row){
+		
+			if (err) {     	
+		     	res.json({success: false,"status":"Failure","code" : 101, "message" : err});
+		     	return;
+	     	}
+	     	lastTeamInsertID=row.insertId;	     	
+			if(teamFollowers.length>0){
+				var teamFollowData=[];
+				for(var j=0;j<teamFollowers.length;j++){
+					var obj=[lastTeamInsertID,teamFollowers[j]];
+					teamFollowData.push(obj);
+				}
+
+				var sql = "INSERT INTO team_followres (team_id, user_id) VALUES ?";
+				connection.query(sql,[teamFollowData],function(err,row){
+					connection.release();
+					if (err) {     	
+				     	res.json({success: false,"status":"Failure","code" : 101, "message" : err});
+				     	return;
+			     	}
+			     	var obj={success:true,"code":200,"team_id":lastTeamInsertID};
+					res.send(obj);
+					
+				});
+
+			}
+			else{
+				var obj={success:true,"code":200,"team_id":lastTeamInsertID};
+				res.send(obj);
+			}
+
+		});
+	});
+});
+
+apiRoutes.post('/createUser', function(req, res){
+	var currentUser=req.decoded;
+	var user=JSON.parse(req.body.user);
+	var pwd=md5(user.pwd);
+	var created_at=moment().format("YYYY-MM-DD HH:mm:ss");
+	pool.getConnection(function(err,connection){
+		if (err){
+			res.json({success: false,"code" : 100, "message" : err});
+			return;
+		}
+		connection.query("INSERT INTO users SET ?",{firstname:user.firstName,lastname:user.lastName,email:user.email,password:pwd,org_id:currentUser.org_id,role_id:2,created_at:created_at},function(err,row){
+		connection.release();
+			if (err) {     	
+		     	res.json({success: false,"status":"Failure","code" : 101, "message" : err});
+		     	return;
+	     	}
+	     	var obj={success:true,"code":200,"user_id":row.insertId};
+			res.send(obj);
+
+		});
+
+	});
+});
+
 
 app.use('/api', apiRoutes);
 
