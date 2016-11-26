@@ -437,6 +437,9 @@ apiRoutes.post('/updateDueDate',function(req,res){
 	      res.json({success: false,"code" : 100, "message" : err});
 	      return;
 	    }
+
+	    if(!req.body.isUpdateTaskRepeat){
+
 	    connection.query("UPDATE tasks SET due_on=? where task_id=?",[req.body.due_on,req.body.taskID],function(err,tasks){
 		
 			if (err) {     	
@@ -463,12 +466,27 @@ apiRoutes.post('/updateDueDate',function(req,res){
 		     		return;
 	     		}
 	     	});
-
 	     	
-	     	  var obj={"code":200,success:true};
-	    		res.send(obj);
+			var obj={"code":200,success:true};
+			res.send(obj);
 
 	     });
+
+		}
+		else{
+
+			var query = 'UPDATE tasks SET repeat_type = ?,repeat_interval = ?, monthly_on =?, weekly_on =? WHERE task_id=?';
+			connection.query(query,[req.body.repeat_type,req.body.repeat_interval,req.body.monthly_on,req.body.weekly_on,req.body.taskID],function(err,tasks){
+			connection.release();
+				if (err) {
+	     			res.json({"status":"Failure","code" : 101, "message" : err,success:false});
+		     		return;
+	     		}
+		     	var obj={"code":200,success:true};
+				res.send(obj);
+
+			});
+		}
 
 	}); 
 
@@ -1024,13 +1042,135 @@ apiRoutes.post('/deleteAssert', function(req, res){
 
 });
 
+function taskRepeatCheck(postData,callback){
+if(postData.taskStatus==1){
+
+	pool.getConnection(function(err,connection){
+	 	if (err){
+	      callback(new Error(err));
+	    }
+	    
+	    connection.query("SELECT * from tasks where task_id=? and repeat_type!=0",[postData.taskID],function(err,row){
+			if(err){
+				callback(new Error(err));
+			}
+	    	if(row.length!=0){
+	    		var created_at=moment().format("YYYY-MM-DD HH:mm:ss");
+	    		var due_on;
+	    		if(row[0].repeat_type==1){ //for daily Task
+	    			var due_on=moment().add(1,'day').format("YYYY-MM-DD HH:mm:ss"); 
+	    		}
+	    		else if(row[0].repeat_type==2){//for periodically  
+	    			var due_on=moment().add(row[0].repeat_interval,'day').format("YYYY-MM-DD HH:mm:ss");
+	    		}
+	    		else if(row[0].repeat_type==3){//Weekly
+	    			var due_on=moment().add(row[0].repeat_interval, 'week').isoWeekday(row[0].weekly_on).format("YYYY-MM-DD HH:mm:ss");
+	    		}
+	    		else if(row[0].repeat_type==4){//Monthly repeat
+	    			if(row[0].monthly_on==29){ // End of month
+						var currentDate = moment();
+						var futureMonth = moment(currentDate).add(row[0].repeat_interval, 'M');
+						var futureMonthEnd = moment(futureMonth).endOf('month');						
+						due_on=moment(futureMonthEnd).format("YYYY-MM-DD HH:mm:ss");
+	    			}
+	    			else{
+
+						var currentDate = moment();
+						var futureMonth = moment(currentDate).add(row[0].repeat_interval, 'M').date(row[0].monthly_on);
+						var futureMonthEnd = moment(futureMonth).endOf('month');
+						if(currentDate.date() != futureMonth.date() && futureMonth.isSame(futureMonthEnd.format('YYYY-MM-DD'))) {
+						futureMonth = futureMonth.add(1, 'd');
+						}
+						due_on=moment(futureMonth).format("YYYY-MM-DD HH:mm:ss");
+
+	    			}
+
+	    		}
+	    		else if(row[0].repeat_type==5){ //Yearly repeat
+	    			var due_on=moment().add(1, 'years').format("YYYY-MM-DD HH:mm:ss");
+	    		}
+	    		else{
+	    			console.log("Not matched");
+	    		}
+
+	    		console.log(due_on);
+
+	    		var dataObj={
+	    			task_name:row[0].task_name,
+	    			task_description:row[0].task_description,
+	    			project_id:row[0].project_id,
+	    			created_at:created_at,
+	    			due_on:due_on,
+	    			tags:row[0].tags,
+	    			created_by:row[0].created_by,
+	    			assignee:row[0].assignee,
+	    			task_priority:Date.now(),
+	    			is_section:row[0].is_section,
+	    			section_id:row[0].section_id,
+	    			parent_id:row[0].parent_id,
+	    			repeat_type:row[0].repeat_type,
+	    			repeat_interval:row[0].repeat_interval,
+	    			monthly_on:row[0].monthly_on,
+	    			weekly_on:row[0].weekly_on
+	    		}
+	    		connection.query("INSERT INTO tasks SET ?",dataObj,function(err,row){
+	    			if(err){
+	    				callback(new Error(err));
+	    			}
+	    			var lastInertID=row.insertId;
+	    			connection.query("SELECT * from followers where task_id=?",[postData.taskID],function(err,followersRow){
+		    			if(err){
+		    				callback(new Error(err));
+		    			}
+	    				var followers=[];
+	    				for (var i = 0; i < followersRow.length; i++){
+	    					var obj=[lastInertID,followersRow[i].user_id];
+	    					followers.push(obj);
+	    				}	    				
+	    				var sql="INSERT INTO followers (task_id, user_id) VALUES ?";
+						connection.query(sql,[followers],function(err,row){
+							connection.release();
+			    			if(err){
+			    				callback(new Error(err));
+			    			}
+			    			callback(null,'');
+						});
+	    			});
+
+
+	    		});
+	    	}
+	    	else{
+
+	    		callback(null,'');
+	    	}
+	    	
+	    });
+	    
+	});
+
+}
+else{
+	callback(null,'');
+}
+	
+}
 
 apiRoutes.post('/updateTaskStatus', function(req, res){
 	var currentUser=req.decoded;
 	var taskStatus=req.body.taskStatus;
 	var currentTab=req.body.currentTab;
-	var currentDateTime=moment().format("YYYY-MM-DD HH:mm:ss");
-	console.log(taskStatus);
+	var postData={};
+	postData.currentUser=currentUser;
+	postData.taskStatus=taskStatus;
+	postData.currentTab=currentTab;
+	postData.taskID=req.body.taskID;
+	taskRepeatCheck(postData,function(err,repeatRes){
+		if(err){
+			res.json({success: false,"code" : 100, "message" : 'Repeat type task having problem'});
+	      	return;
+		}
+var currentDateTime=moment().format("YYYY-MM-DD HH:mm:ss");
 pool.getConnection(function(err,connection){
 
 		var tasks={};
@@ -1124,7 +1264,7 @@ async.series([
 
 	});
 
-
+});
 
 });
 
