@@ -779,12 +779,13 @@ apiRoutes.post('/createTask',function(req,res){
 	      return;
 	    }
 var lastInsertID;
-
+var created_at=moment().format("YYYY-MM-DD HH:mm:ss");
 async.series([
 	function(callback) {
 		if(req.body.currentTab=='myTasks')
 		{
-			connection.query("INSERT INTO tasks SET ?",{task_name:req.body.task_name,task_description:req.body.task_description,created_by:currentUser.user_id,project_id:req.body.projectID,task_priority:Date.now(),assignee:currentUser.user_id,is_section:req.body.isSection,parent_id:parent_id},function(err,row){
+
+			connection.query("INSERT INTO tasks SET ?",{task_name:req.body.task_name,task_description:req.body.task_description,created_by:currentUser.user_id,project_id:req.body.projectID,task_priority:Date.now(),assignee:currentUser.user_id,is_section:req.body.isSection,parent_id:parent_id,created_at:created_at},function(err,row){
 			if (err) {     	
 				res.json({"status":"Failure","code" : 101, "message" : err,success:false});
 				return;
@@ -812,7 +813,7 @@ async.series([
 		}
 		else
 		{
-			connection.query("INSERT INTO tasks SET ?",{task_name:req.body.task_name,task_description:req.body.task_description,created_by:currentUser.user_id,project_id:req.body.projectID,task_priority:Date.now(),is_section:req.body.isSection,parent_id:parent_id},function(err,row){
+			connection.query("INSERT INTO tasks SET ?",{task_name:req.body.task_name,task_description:req.body.task_description,created_by:currentUser.user_id,project_id:req.body.projectID,task_priority:Date.now(),is_section:req.body.isSection,parent_id:parent_id,created_at:created_at},function(err,row){
 			if (err) {     	
 				res.json({"status":"Failure","code" : 101, "message" : err,success:false});
 				return;
@@ -1058,24 +1059,27 @@ if(postData.taskStatus==1){
 	    		var created_at=moment().format("YYYY-MM-DD HH:mm:ss");
 	    		var due_on;
 	    		if(row[0].repeat_type==1){ //for daily Task
-	    			var due_on=moment().add(1,'day').format("YYYY-MM-DD HH:mm:ss"); 
+	    			var due_on=moment(row[0].due_on,"YYYY-MM-DD HH:mm:ss").add(1,'day').format("YYYY-MM-DD HH:mm:ss"); 
 	    		}
-	    		else if(row[0].repeat_type==2){//for periodically  
-	    			var due_on=moment().add(row[0].repeat_interval,'day').format("YYYY-MM-DD HH:mm:ss");
+	    		else if(row[0].repeat_type==2){//for periodically
+	    			var due_on=moment(row[0].due_on,"YYYY-MM-DD HH:mm:ss").add(row[0].repeat_interval,'day').format("YYYY-MM-DD HH:mm:ss");
 	    		}
-	    		else if(row[0].repeat_type==3){//Weekly
-	    			var due_on=moment().add(row[0].repeat_interval, 'week').isoWeekday(row[0].weekly_on).format("YYYY-MM-DD HH:mm:ss");
+	    		else if(row[0].repeat_type==3){//Weekly	    			
+	    			var referenceDueOn = moment(row[0].due_on,'YYYY-MM-DD');
+	    			var due_on = referenceDueOn.clone().add(row[0].repeat_interval, 'week').weekday(row[0].weekly_on).format("YYYY-MM-DD HH:mm:ss");
+	    			//var due_on=moment().add(row[0].repeat_interval, 'week').isoWeekday(row[0].weekly_on).format("YYYY-MM-DD HH:mm:ss");
+	    			
 	    		}
 	    		else if(row[0].repeat_type==4){//Monthly repeat
 	    			if(row[0].monthly_on==29){ // End of month
-						var currentDate = moment();
+						var currentDate = moment(row[0].due_on,"YYYY-MM-DD HH:mm:ss");
 						var futureMonth = moment(currentDate).add(row[0].repeat_interval, 'M');
 						var futureMonthEnd = moment(futureMonth).endOf('month');						
 						due_on=moment(futureMonthEnd).format("YYYY-MM-DD HH:mm:ss");
 	    			}
 	    			else{
 
-						var currentDate = moment();
+						var currentDate = moment(row[0].due_on,"YYYY-MM-DD HH:mm:ss");
 						var futureMonth = moment(currentDate).add(row[0].repeat_interval, 'M').date(row[0].monthly_on);
 						var futureMonthEnd = moment(futureMonth).endOf('month');
 						if(currentDate.date() != futureMonth.date() && futureMonth.isSame(futureMonthEnd.format('YYYY-MM-DD'))) {
@@ -1087,13 +1091,12 @@ if(postData.taskStatus==1){
 
 	    		}
 	    		else if(row[0].repeat_type==5){ //Yearly repeat
-	    			var due_on=moment().add(1, 'years').format("YYYY-MM-DD HH:mm:ss");
+	    			var due_on=moment(row[0].due_on,"YYYY-MM-DD HH:mm:ss").add(1, 'years').format("YYYY-MM-DD HH:mm:ss");
 	    		}
 	    		else{
 	    			console.log("Not matched");
 	    		}
 
-	    		console.log(due_on);
 
 	    		var dataObj={
 	    			task_name:row[0].task_name,
@@ -1112,6 +1115,7 @@ if(postData.taskStatus==1){
 	    			repeat_interval:row[0].repeat_interval,
 	    			monthly_on:row[0].monthly_on,
 	    			weekly_on:row[0].weekly_on
+
 	    		}
 	    		connection.query("INSERT INTO tasks SET ?",dataObj,function(err,row){
 	    			if(err){
